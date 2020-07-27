@@ -2,13 +2,21 @@
 // This software may be modified and distributed under the terms
 // of the Apache-2.0 license. See the LICENSE file for details.
 
+import { TFunction } from 'i18next';
 import { Option } from './types';
 
 interface LinkOption extends Option {
   dnslink?: string;
 }
 
-function createDev (t: <T= string> (key: string, text: string, options: { ns: string }) => T): LinkOption[] {
+interface EnvWindow {
+  // eslint-disable-next-line camelcase
+  process_env?: {
+    WS_URL: string;
+  }
+}
+
+function createDev (t: TFunction): LinkOption[] {
   return [
     {
       dnslink: 'local',
@@ -19,7 +27,7 @@ function createDev (t: <T= string> (key: string, text: string, options: { ns: st
   ];
 }
 
-function createLive (t: <T= string> (key: string, text: string, options: { ns: string }) => T): LinkOption[] {
+function createLive (t: TFunction): LinkOption[] {
   return [
     {
       dnslink: 'polkadot',
@@ -72,13 +80,18 @@ function createLive (t: <T= string> (key: string, text: string, options: { ns: s
   ];
 }
 
-function createTest (t: <T= string> (key: string, text: string, options: { ns: string }) => T): LinkOption[] {
+function createTest (t: TFunction): LinkOption[] {
   return [
     {
       dnslink: 'westend',
       info: 'westend',
       text: t<string>('rpc.westend', 'Westend (Polkadot Testnet, hosted by Parity)', { ns: 'apps-config' }),
       value: 'wss://westend-rpc.polkadot.io'
+    },
+    {
+      info: 'acala',
+      text: t<string>('rpc.mandala', 'Mandala (Acala Testnet, hosted by Acala)', { ns: 'apps-config' }),
+      value: 'wss://node-6684611762228215808.jm.onfinality.io/ws'
     },
     {
       info: 'edgeware',
@@ -94,8 +107,36 @@ function createTest (t: <T= string> (key: string, text: string, options: { ns: s
       info: 'nodle',
       text: t<string>('rpc.arcadia', 'Arcadia (Nodle Testnet, hosted by Nodle)', { ns: 'apps-config' }),
       value: 'wss://arcadia1.nodleprotocol.io/'
+    },
+    {
+      info: 'datahighway',
+      isDisabled: true,
+      text: t<string>('rpc.datahighway.harbour', 'Harbour (DataHighway Testnet, hosted by MXC)', { ns: 'apps-config' }),
+      value: 'wss://testnet-harbour.datahighway.com'
     }
   ];
+}
+
+function createCustom (t: TFunction): LinkOption[] {
+  const WS_URL = (
+    (typeof process !== 'undefined' ? process.env?.WS_URL : undefined) ||
+    (typeof window !== 'undefined' ? (window as EnvWindow).process_env?.WS_URL : undefined)
+  );
+
+  return WS_URL
+    ? [
+      {
+        isHeader: true,
+        text: t<string>('rpc.custom', 'Custom environment', { ns: 'apps-config' }),
+        value: ''
+      },
+      {
+        info: 'WS_URL',
+        text: t<string>('rpc.custom.entry', 'Custom {{WS_URL}}', { ns: 'apps-config', replace: { WS_URL } }),
+        value: WS_URL
+      }
+    ]
+    : [];
 }
 
 // The available endpoints that will show in the dropdown. For the most part (with the exception of
@@ -103,20 +144,9 @@ function createTest (t: <T= string> (key: string, text: string, options: { ns: s
 //   info: The chain logo name as defined in ../logos, specifically in namedLogos
 //   text: The text to display on teh dropdown
 //   value: The actual hosted secure websocket endpoint
-export default function create (t: <T= string> (key: string, text: string, options: { ns: string }) => T): LinkOption[] {
-  const ENV: LinkOption[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment,@typescript-eslint/no-unsafe-member-access
-  const WS_URL = process.env.WS_URL || (window as any).process_env?.WS_URL as string;
-
-  if (WS_URL) {
-    ENV.push({
-      info: 'WS_URL',
-      text: `WS_URL: ${WS_URL}`,
-      value: WS_URL
-    });
-  }
-
-  let endpoints = [
+export default function create (t: TFunction): LinkOption[] {
+  return [
+    ...createCustom(t),
     {
       isHeader: true,
       text: t<string>('rpc.header.live', 'Live networks', { ns: 'apps-config' }),
@@ -135,18 +165,5 @@ export default function create (t: <T= string> (key: string, text: string, optio
       value: ''
     },
     ...createDev(t)
-  ];
-
-  if (ENV.length > 0) {
-    endpoints = [
-      {
-        isHeader: true,
-        text: t<string>('rpc.custom', 'Custom environment', { ns: 'apps-config' }),
-        value: ''
-      },
-      ...ENV
-    ].concat(endpoints);
-  }
-
-  return endpoints;
+  ].filter(({ isDisabled }) => !isDisabled);
 }

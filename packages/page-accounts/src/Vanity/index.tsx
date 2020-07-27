@@ -2,9 +2,9 @@
 // This software may be modified and distributed under the terms
 // of the Apache-2.0 license. See the LICENSE file for details.
 
+import { ActionStatus } from '@polkadot/react-components/Status/types';
 import { KeypairType } from '@polkadot/util-crypto/types';
 import { GeneratorMatches, GeneratorMatch, GeneratorResult } from '@polkadot/vanitygen/types';
-import { ComponentProps as Props } from '../types';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import styled from 'styled-components';
@@ -18,6 +18,11 @@ import generatorSort from '@polkadot/vanitygen/sort';
 import CreateModal from '../Accounts/modals/Create';
 import { useTranslation } from '../translate';
 import Match from './Match';
+
+interface Props {
+  className?: string;
+  onStatusChange: (status: ActionStatus) => void;
+}
 
 interface Match {
   isMatchValid: boolean;
@@ -103,7 +108,7 @@ function VanityApp ({ className = '', onStatusChange }: Props): React.ReactEleme
         return _checkMatches();
       }
 
-      setImmediate((): void => {
+      setTimeout((): void => {
         if (mountedRef.current) {
           if (results.current.length === 25) {
             _checkMatches();
@@ -115,7 +120,7 @@ function VanityApp ({ className = '', onStatusChange }: Props): React.ReactEleme
 
           _executeGeneration();
         }
-      });
+      }, 0);
     },
     [_checkMatches, match, mountedRef, runningRef, type, withCase]
   );
@@ -215,7 +220,7 @@ function VanityApp ({ className = '', onStatusChange }: Props): React.ReactEleme
           icon={
             isRunning
               ? 'stop'
-              : 'sign-in'
+              : 'sign-in-alt'
           }
           isDisabled={!isMatchValid}
           label={

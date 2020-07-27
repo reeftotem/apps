@@ -16,7 +16,7 @@ interface Props {
   className?: string;
   isVisible: boolean;
   next?: string[];
-  nominators: string[];
+  nominators?: string[];
   stakingOverview?: DeriveStakingOverview;
 }
 
@@ -25,11 +25,11 @@ function Summary ({ className = '', isVisible, next, nominators, stakingOverview
   const { lastBlockAuthors, lastBlockNumber } = useContext(BlockAuthorsContext);
 
   return (
-    <SummaryBox className={`${className} ${!isVisible ? 'staking--hidden' : ''}`}>
+    <SummaryBox className={`${className}${!isVisible ? ' staking--hidden' : ''}`}>
       <section>
         {stakingOverview && (
           <CardSummary label={t<string>('validators')}>
-            {stakingOverview.validators.length}{`/${stakingOverview.validatorCount.toString()}`}
+            {stakingOverview.validators.length}&nbsp;/&nbsp;{stakingOverview.validatorCount.toString()}
           </CardSummary>
         )}
         {!!next?.length && (
@@ -37,7 +37,7 @@ function Summary ({ className = '', isVisible, next, nominators, stakingOverview
             {next.length}
           </CardSummary>
         )}
-        {!!nominators.length && (
+        {!!nominators?.length && (
           <CardSummary label={t<string>('nominators')}>
             {nominators.length}
           </CardSummary>

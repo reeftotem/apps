@@ -9,7 +9,7 @@ import BN from 'bn.js';
 import React, { useEffect, useMemo, useState } from 'react';
 import styled from 'styled-components';
 import { Button, Table } from '@polkadot/react-components';
-import { useApi, useOwnEraRewards } from '@polkadot/react-hooks';
+import { useApi, useCall, useOwnEraRewards } from '@polkadot/react-hooks';
 import { FormatBalance } from '@polkadot/react-query';
 import { BN_ZERO, isFunction } from '@polkadot/util';
 
@@ -17,6 +17,7 @@ import ElectionBanner from '../ElectionBanner';
 import { useTranslation } from '../translate';
 import useStakerPayouts from './useStakerPayouts';
 import PayButton from './PayButton';
+import PayToggle from './PayToggle';
 import Stash from './Stash';
 import Validator from './Validator';
 
@@ -31,6 +32,13 @@ interface Available {
   stashes?: PayoutStash[];
   validators?: PayoutValidator[];
 }
+
+interface EraSelection {
+  value: number;
+  text: string;
+}
+
+const DAY_SECS = new BN(1000 * 60 * 60 * 24);
 
 function groupByValidator (allRewards: Record<string, DeriveStakerReward[]>, stakerPayoutsAfter: BN): PayoutValidator[] {
   return Object
@@ -91,12 +99,47 @@ function extractStashes (allRewards: Record<string, DeriveStakerReward[]>): Payo
 }
 
 function Payouts ({ className = '', isInElection }: Props): React.ReactElement<Props> {
+  const { t } = useTranslation();
   const { api } = useApi();
   const [{ stashTotal, stashes, validators }, setPayouts] = useState<Available>({});
+  const [eraSelection, setEraSelection] = useState<EraSelection[]>([{ text: '', value: 0 }]);
+  const [eraSelectionIndex, setEraSelectionIndex] = useState(0);
+  const eraLength = useCall<BN>(api.derive.session.eraLength, []);
+  const historyDepth = useCall<BN>(api.query.staking.historyDepth, []);
   const stakerPayoutsAfter = useStakerPayouts();
-  const { allRewards } = useOwnEraRewards();
-  const { t } = useTranslation();
+  const { allRewards, isLoadingRewards } = useOwnEraRewards(eraSelection[eraSelectionIndex].value);
   const isDisabled = isInElection || !isFunction(api.tx.utility?.batch);
+
+  useEffect((): void => {
+    if (eraLength && historyDepth) {
+      const blocksPerDay = DAY_SECS.div(api.consts.babe?.expectedBlockTime || api.consts.timestamp?.minimumPeriod.muln(2) || new BN(6000));
+      const maxBlocks = eraLength.mul(historyDepth);
+      const eraSelection: EraSelection[] = [];
+      let days = 2;
+
+      while (true) {
+        const dayBlocks = blocksPerDay.muln(days);
+
+        if (dayBlocks.gte(maxBlocks)) {
+          break;
+        }
+
+        eraSelection.push({
+          text: t<string>('{{days}} days', { replace: { days } }),
+          value: dayBlocks.div(eraLength).toNumber()
+        });
+
+        days = days * 3;
+      }
+
+      eraSelection.push({
+        text: t<string>('Max, {{eras}} eras', { replace: { eras: historyDepth.toNumber() } }),
+        value: historyDepth.toNumber()
+      });
+
+      setEraSelection(eraSelection);
+    }
+  }, [api, eraLength, historyDepth, t]);
 
   useEffect((): void => {
     if (allRewards) {
@@ -114,7 +157,7 @@ function Payouts ({ className = '', isInElection }: Props): React.ReactElement<P
   }, [allRewards, stakerPayoutsAfter]);
 
   const headerStashes = useMemo(() => [
-    [t('payout/stash'), 'start'],
+    [t('payout/stash'), 'start', 2],
     [t('eras'), 'start'],
     [t('available')],
     [('remaining')],
@@ -122,7 +165,7 @@ function Payouts ({ className = '', isInElection }: Props): React.ReactElement<P
   ], [t]);
 
   const headerValidators = useMemo(() => [
-    [t('payout/validator'), 'start'],
+    [t('payout/validator'), 'start', 2],
     [t('eras'), 'start'],
     [t('available')],
     [('remaining')],
@@ -131,7 +174,7 @@ function Payouts ({ className = '', isInElection }: Props): React.ReactElement<P
 
   const footer = useMemo(() => (
     <tr>
-      <td colSpan={2} />
+      <td colSpan={3} />
       <td className='number'>
         {stashTotal && <FormatBalance value={stashTotal} />}
       </td>
@@ -143,6 +186,11 @@ function Payouts ({ className = '', isInElection }: Props): React.ReactElement<P
     <div className={className}>
       {api.tx.staking.payoutStakers && (
         <Button.Group>
+          <PayToggle
+            onChange={setEraSelectionIndex}
+            options={eraSelection}
+            selected={eraSelectionIndex}
+          />
           <PayButton
             isAll
             isDisabled={isDisabled}
@@ -152,13 +200,13 @@ function Payouts ({ className = '', isInElection }: Props): React.ReactElement<P
       )}
       <ElectionBanner isInElection={isInElection} />
       <Table
-        empty={stashes && t<string>('No pending payouts for your stashes')}
-        emptySpinner={t<string>('Retrieving info for all applicable eras, this will take some time')}
+        empty={!isLoadingRewards && stashes && t<string>('No pending payouts for your stashes')}
+        emptySpinner={t<string>('Retrieving info for the selected eras, this will take some time')}
         footer={footer}
         header={headerStashes}
         isFixed
       >
-        {stashes?.map((payout): React.ReactNode => (
+        {!isLoadingRewards && stashes?.map((payout): React.ReactNode => (
           <Stash
             isDisabled={isDisabled}
             key={payout.stashId}
@@ -167,12 +215,12 @@ function Payouts ({ className = '', isInElection }: Props): React.ReactElement<P
           />
         ))}
       </Table>
-      {api.tx.staking.payoutStakers && validators && (validators.length !== 0) && (
+      {api.tx.staking.payoutStakers && !isLoadingRewards && validators && (validators.length !== 0) && (
         <Table
           header={headerValidators}
           isFixed
         >
-          {validators.map((payout): React.ReactNode => (
+          {!isLoadingRewards && validators.map((payout): React.ReactNode => (
             <Validator
               isDisabled={isDisabled}
               key={payout.validatorId}

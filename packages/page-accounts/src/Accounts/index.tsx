@@ -2,16 +2,16 @@
 // This software may be modified and distributed under the terms
 // of the Apache-2.0 license. See the LICENSE file for details.
 
-import { KeyringAddress } from '@polkadot/ui-keyring/types';
-import { ComponentProps as Props } from '../types';
-import { SortedAccount } from './types';
+import { ActionStatus } from '@polkadot/react-components/Status/types';
+import { Voting } from '@polkadot/types/interfaces';
+import { Delegation, SortedAccount } from '../types';
 
 import BN from 'bn.js';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import styled from 'styled-components';
 import keyring from '@polkadot/ui-keyring';
 import { getLedger, isLedger } from '@polkadot/react-api';
-import { useApi, useAccounts, useFavorites, useIpfs, useToggle } from '@polkadot/react-hooks';
+import { useApi, useAccounts, useCall, useFavorites, useIpfs, useToggle } from '@polkadot/react-hooks';
 import { FormatBalance } from '@polkadot/react-query';
 import { Button, Input, Table } from '@polkadot/react-components';
 import { BN_ZERO } from '@polkadot/util';
@@ -20,14 +20,26 @@ import { useTranslation } from '../translate';
 import CreateModal from './modals/Create';
 import ImportModal from './modals/Import';
 import Multisig from './modals/MultisigCreate';
-import QrModal from './modals/Qr';
+import Proxy from './modals/ProxyAdd';
+import Qr from './modals/Qr';
 import Account from './Account';
 import BannerClaims from './BannerClaims';
 import BannerExtension from './BannerExtension';
+import { sortAccounts } from '../util';
 
 interface Balances {
   accounts: Record<string, BN>;
   balanceTotal?: BN;
+}
+
+interface Sorted {
+  sortedAccounts: SortedAccount[];
+  sortedAddresses: string[];
+}
+
+interface Props {
+  className?: string;
+  onStatusChange: (status: ActionStatus) => void;
 }
 
 const STORE_FAVS = 'accounts:favorites';
@@ -45,53 +57,6 @@ async function queryLedger (): Promise<void> {
   }
 }
 
-function expandList (mapped: SortedAccount[], entry: SortedAccount): SortedAccount[] {
-  mapped.push(entry);
-
-  entry.children.forEach((entry): void => {
-    expandList(mapped, entry);
-  });
-
-  return mapped;
-}
-
-function sortAccounts (addresses: string[], favorites: string[]): SortedAccount[] {
-  const mapped = addresses
-    .map((address) => keyring.getAccount(address))
-    .filter((account): account is KeyringAddress => !!account)
-    .map((account): SortedAccount => ({
-      account,
-      children: [],
-      isFavorite: favorites.includes(account.address)
-    }))
-    .sort((a, b) => (a.account.meta.whenCreated || 0) - (b.account.meta.whenCreated || 0));
-
-  return mapped
-    .filter((entry): boolean => {
-      const parentAddress = entry.account.meta.parentAddress;
-
-      if (parentAddress) {
-        const parent = mapped.find(({ account: { address } }) => address === parentAddress);
-
-        if (parent) {
-          parent.children.push(entry);
-
-          return false;
-        }
-      }
-
-      return true;
-    })
-    .reduce(expandList, [])
-    .sort((a, b): number =>
-      a.isFavorite === b.isFavorite
-        ? 0
-        : b.isFavorite
-          ? 1
-          : -1
-    );
-}
-
 function Overview ({ className = '', onStatusChange }: Props): React.ReactElement<Props> {
   const { t } = useTranslation();
   const { api } = useApi();
@@ -100,17 +65,48 @@ function Overview ({ className = '', onStatusChange }: Props): React.ReactElemen
   const [isCreateOpen, toggleCreate] = useToggle();
   const [isImportOpen, toggleImport] = useToggle();
   const [isMultisigOpen, toggleMultisig] = useToggle();
+  const [isProxyOpen, toggleProxy] = useToggle();
   const [isQrOpen, toggleQr] = useToggle();
   const [favorites, toggleFavorite] = useFavorites(STORE_FAVS);
   const [{ balanceTotal }, setBalances] = useState<Balances>({ accounts: {} });
-  const [sortedAccounts, setSortedAccounts] = useState<SortedAccount[]>([]);
   const [filterOn, setFilter] = useState<string>('');
+  const [sortedAccountsWithDelegation, setSortedAccountsWithDelegation] = useState<SortedAccount[]>([]);
+  const [{ sortedAccounts, sortedAddresses }, setSorted] = useState<Sorted>({ sortedAccounts: [], sortedAddresses: [] });
+  const delegations = useCall<Voting[]>(api.query.democracy?.votingOf?.multi, [sortedAddresses]);
 
   useEffect((): void => {
-    setSortedAccounts(
-      sortAccounts(allAccounts, favorites)
-    );
+    const sortedAccounts = sortAccounts(allAccounts, favorites);
+    const sortedAddresses = sortedAccounts.map((a) => a.account.address);
+
+    setSorted({ sortedAccounts, sortedAddresses });
   }, [allAccounts, favorites]);
+
+  useEffect(() => {
+    if (api.query.democracy?.votingOf && !delegations?.length) {
+      return;
+    }
+
+    setSortedAccountsWithDelegation(
+      sortedAccounts?.map((account, index) => {
+        let delegation: Delegation | undefined;
+
+        if (delegations && delegations[index]?.isDelegating) {
+          const { balance: amount, conviction, target } = delegations[index].asDelegating;
+
+          delegation = {
+            accountDelegated: target.toString(),
+            amount,
+            conviction
+          };
+        }
+
+        return ({
+          ...account,
+          delegation
+        });
+      })
+    );
+  }, [api, delegations, sortedAccounts]);
 
   const _setBalance = useCallback(
     (account: string, balance: BN) =>
@@ -127,7 +123,7 @@ function Overview ({ className = '', onStatusChange }: Props): React.ReactElemen
 
   const header = useMemo(() => [
     [t('accounts'), 'start', 3],
-    [t('parent'), 'address'],
+    [t('parent'), 'address ui--media-1400'],
     [t('type')],
     [t('tags'), 'start'],
     [t('transactions'), 'ui--media-1500'],
@@ -138,11 +134,15 @@ function Overview ({ className = '', onStatusChange }: Props): React.ReactElemen
 
   const footer = useMemo(() => (
     <tr>
-      <td colSpan={7} />
+      <td colSpan={3} />
+      <td className='ui--media-1400' />
+      <td colSpan={2} />
+      <td className='ui--media-1500' />
       <td className='number'>
         {balanceTotal && <FormatBalance value={balanceTotal} />}
       </td>
-      <td colSpan={2} />
+      <td />
+      <td className='ui--media-1400' />
     </tr>
   ), [balanceTotal]);
 
@@ -180,15 +180,21 @@ function Overview ({ className = '', onStatusChange }: Props): React.ReactElemen
           onStatusChange={onStatusChange}
         />
       )}
+      {isProxyOpen && (
+        <Proxy
+          onClose={toggleProxy}
+          onStatusChange={onStatusChange}
+        />
+      )}
       {isQrOpen && (
-        <QrModal
+        <Qr
           onClose={toggleQr}
           onStatusChange={onStatusChange}
         />
       )}
       <Button.Group>
         <Button
-          icon='add'
+          icon='plus'
           isDisabled={isIpfs}
           label={t<string>('Add account')}
           onClick={toggleCreate}
@@ -214,10 +220,16 @@ function Overview ({ className = '', onStatusChange }: Props): React.ReactElemen
           </>
         )}
         <Button
-          icon='add'
-          isDisabled={!api.tx.utility}
+          icon='plus'
+          isDisabled={!(api.tx.multisig || api.tx.utility)}
           label={t<string>('Multisig')}
           onClick={toggleMultisig}
+        />
+        <Button
+          icon='plus'
+          isDisabled={!api.tx.proxy}
+          label={t<string>('Proxied')}
+          onClick={toggleProxy}
         />
       </Button.Group>
       <Table
@@ -226,10 +238,10 @@ function Overview ({ className = '', onStatusChange }: Props): React.ReactElemen
         footer={footer}
         header={header}
       >
-        {}
-        {sortedAccounts.map(({ account, isFavorite }): React.ReactNode => (
+        {sortedAccountsWithDelegation.map(({ account, delegation, isFavorite }): React.ReactNode => (
           <Account
             account={account}
+            delegation={delegation}
             filter={filterOn}
             isFavorite={isFavorite}
             key={account.address}

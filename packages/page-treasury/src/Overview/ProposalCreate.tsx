@@ -92,9 +92,8 @@ function Propose ({ className }: Props): React.ReactElement<Props> | null {
           <Modal.Actions onCancel={toggleOpen}>
             <TxButton
               accountId={accountId}
-              icon='add'
+              icon='plus'
               isDisabled={!accountId || !hasValue}
-              isPrimary
               label={t<string>('Submit proposal')}
               onStart={toggleOpen}
               params={[value, beneficiary]}

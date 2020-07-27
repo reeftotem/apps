@@ -18,6 +18,7 @@ import useKnownAddresses from '../useKnownAddresses';
 interface Props extends ModalProps {
   className?: string;
   onClose: () => void;
+  onStatusChange: (status: ActionStatus) => void;
 }
 
 interface CreateOptions {
@@ -28,7 +29,7 @@ interface CreateOptions {
 
 const MAX_SIGNATORIES = 16;
 
-function createAccount (signatories: string[], threshold: BN | number, { genesisHash, name, tags = [] }: CreateOptions, success: string): ActionStatus {
+function createMultisig (signatories: string[], threshold: BN | number, { genesisHash, name, tags = [] }: CreateOptions, success: string): ActionStatus {
   // we will fill in all the details below
   const status = { action: 'create' } as ActionStatus;
 
@@ -58,7 +59,7 @@ function Multisig ({ className = '', onClose, onStatusChange }: Props): React.Re
   const _createMultisig = useCallback(
     (): void => {
       const options = { genesisHash: isDevelopment ? undefined : api.genesisHash.toString(), name: name.trim() };
-      const status = createAccount(signatories, threshold, options, t<string>('created multisig'));
+      const status = createMultisig(signatories, threshold, options, t<string>('created multisig'));
 
       onStatusChange(status);
       onClose();
@@ -137,7 +138,6 @@ function Multisig ({ className = '', onClose, onStatusChange }: Props): React.Re
         <Button
           icon='plus'
           isDisabled={!isValid}
-          isPrimary
           label={t<string>('Create')}
           onClick={_createMultisig}
         />
